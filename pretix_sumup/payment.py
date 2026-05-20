@@ -347,6 +347,7 @@ class SumUp(BasePaymentProvider):
         try:
             sumup_client.refund_transaction(
                 transaction_id=transaction["id"],
+                merchant_code=self.settings.get("merchant_code"),
                 amount=float(refund.amount),
                 access_token=self.settings.get("access_token"),
             )
