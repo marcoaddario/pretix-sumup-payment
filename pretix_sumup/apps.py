@@ -21,6 +21,8 @@ class PluginApp(PluginConfig):
         version = __version__
         category = "PAYMENT"
         compatibility = "pretix>=2.7.0"
+        license = "AGPLv3+"
+        source_url = "https://github.com/wiomoc/pretix-sumup-payment"
 
     def ready(self):
         from . import signals  # NOQA

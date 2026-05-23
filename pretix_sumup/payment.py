@@ -1,6 +1,7 @@
 import logging
 from collections import OrderedDict
 from decimal import Decimal
+
 from django import forms
 from django.http import HttpRequest
 from django.template.loader import get_template
@@ -13,9 +14,13 @@ from pretix.base.payment import BasePaymentProvider, PaymentException
 from pretix.multidomain.urlreverse import build_absolute_uri
 from pretix.plugins.stripe.forms import StripeKeyValidator
 
-from pretix_sumup import sumup_client
+from pretix_sumup.api.client import SumUpClient, SumupApiError
+from pretix_sumup.utils.logging import (
+    log_payment_confirmation,
+    log_payment_initiation,
+)
 
-logger = logging.getLogger("pretix.plugins.sumup")
+logger = logging.getLogger("pretix.plugins.sumup.payment")
 
 
 class SumUp(BasePaymentProvider):
@@ -51,8 +56,6 @@ class SumUp(BasePaymentProvider):
                                 "placeholder": _("Automatically filled in"),
                             }
                         ),
-                        # As the field is required but is autofilled later, we need
-                        # some default value that is used internally before we resolve the correct value
                         empty_value="-",
                         label=_("Merchant Code"),
                     ),
@@ -66,8 +69,6 @@ class SumUp(BasePaymentProvider):
                                 "placeholder": _("Automatically filled in"),
                             }
                         ),
-                        # As the field is required but is autofilled later, we need
-                        # some default value that is used internally before we resolve the correct value
                         empty_value="-",
                         label=_("Merchant Name"),
                     ),
@@ -79,7 +80,7 @@ class SumUp(BasePaymentProvider):
                         required=False,
                         help_text=_(
                             "Allow customers to pay using alternative payment methods like Apple Pay, Google Pay, iDEAL. <br>"
-                            "<i>The supported payment methods depend on the country of your SumUp account. </i>"
+                            '<i>The supported payment methods depend on the country of your SumUp account. </i>'
                             '<i><a href="https://developer.sumup.com/online-payments/apm/introduction" target="_blank">Learn more</a></i> <br>'
                             "<br>"
                             "<i>In order to enable Apple Pay:</i><br>"
@@ -147,7 +148,6 @@ class SumUp(BasePaymentProvider):
             ]
             + list(super().settings_form_fields.items())
         )
-
         d.move_to_end("_enabled", last=False)
         return d
 
@@ -162,12 +162,8 @@ class SumUp(BasePaymentProvider):
 
         if access_token:
             try:
-                (
-                    merchant_name,
-                    merchant_code,
-                ) = sumup_client.validate_access_token_and_get_merchant_code(
-                    access_token
-                )
+                client = SumUpClient(access_token)
+                merchant_name, merchant_code = client.validate_access_token()
                 cleaned_data["payment_sumup_merchant_code"] = merchant_code
                 cleaned_data["payment_sumup_merchant_name"] = merchant_name
             except Exception as e:
@@ -176,13 +172,11 @@ class SumUp(BasePaymentProvider):
                         "Invalid API key: {}"
                     ).format(str(e))
 
-        # Validate Google Pay settings
         apms_enabled = cleaned_data.get("payment_sumup_enable_apms", False)
         enable_google_pay = (
             cleaned_data.get("payment_sumup_enable_google_pay", False) and apms_enabled
         )
 
-        # Technically this shouldn't be necessary as the form should not allow enabling Google Pay without APMs, but just in case
         if (
             cleaned_data.get("payment_sumup_enable_google_pay", False)
             and not apms_enabled
@@ -202,7 +196,8 @@ class SumUp(BasePaymentProvider):
 
             if not merchant_name or merchant_name == "-":
                 errors["payment_sumup_merchant_name"] = _(
-                    "Merchant Name is required when Google Pay is enabled. Please input your API key again in order to retrieve your Merchant Name."
+                    "Merchant Name is required when Google Pay is enabled. "
+                    "Please input your API key again in order to retrieve your Merchant Name."
                 )
 
         if errors:
@@ -213,7 +208,6 @@ class SumUp(BasePaymentProvider):
     def is_allowed(self, request: HttpRequest, total: Decimal = None):
         if total is None:
             return True
-        # minimum amount is 1 EUR or similar in other currencies
         return total >= 1
 
     def execute_payment(self, request: HttpRequest, payment: OrderPayment):
@@ -224,22 +218,24 @@ class SumUp(BasePaymentProvider):
         has_valid_checkout = self._synchronize_payment_status(payment)
         if has_valid_checkout:
             return
+
         try:
+            merchant_code = self.settings.get("merchant_code")
+            access_token = self.settings.get("access_token")
+            client = SumUpClient(access_token, merchant_code=merchant_code)
+
             checkout_params = {
                 "checkout_reference": f"{event.slug}/{order.code}/{payment_id}",
                 "amount": payment.amount,
                 "currency": event.currency,
                 "description": f"{event.name} #{order.code}",
-                "merchant_code": self.settings.get("merchant_code"),
                 "return_url": build_absolute_uri(
                     event,
                     "plugins:pretix_sumup:checkout_event",
                     kwargs={"payment": payment.pk},
                 ),
-                "access_token": self.settings.get("access_token"),
             }
 
-            # Only include redirect_url if enable_apms is True
             if self.settings.get("enable_apms", as_type=bool, default=False):
                 checkout_params["redirect_url"] = build_absolute_uri(
                     event,
@@ -251,12 +247,16 @@ class SumUp(BasePaymentProvider):
                     },
                 )
 
-            checkout_id = sumup_client.create_checkout(**checkout_params)
+            checkout_id = client.create_checkout(**checkout_params)
 
             info_data = payment.info_data
             info_data["sumup_checkout_id"] = checkout_id
             payment.info_data = info_data
             payment.save()
+
+            log_payment_initiation(
+                logger, order.code, payment_id, payment.amount, event.currency
+            )
         except Exception as err:
             internal_exception_message = f"Error while creating SumUp checkout: {err}"
             payment.fail(info={"error": internal_exception_message})
@@ -276,18 +276,14 @@ class SumUp(BasePaymentProvider):
         if checkout_id is None:
             return ""
 
-        # Synchronize the payment status as backup if the return webhook fails
         self._synchronize_payment_status(payment)
 
         csp_nonce = get_random_string(10)
-        # XXX: smuggle in http request to our csp middleware signal handler
         request.__dict__["sumup_csp_nonce"] = csp_nonce
 
-        # Check if Google Pay is explicitly enabled for this request
         enable_google_pay = self.settings.get(
             "enable_google_pay", as_type=bool, default=False
         )
-        # XXX: smuggle  in http request to our csp middleware signal handler
         request.__dict__["sumup_enable_google_pay"] = enable_google_pay
 
         if (
@@ -305,10 +301,8 @@ class SumUp(BasePaymentProvider):
                 "merchant_name": self.settings.get("merchant_name"),
             }
         elif payment.state == OrderPayment.PAYMENT_STATE_CONFIRMED:
-            # The payment was paid in the meantime, reload the containing page to show the success message
             context = {"reload": True, "csp_nonce": csp_nonce}
         else:
-            # Invalid state, nothing to see here
             return ""
 
         return get_template("pretix_sumup/payment_widget.html").render(context)
@@ -320,12 +314,11 @@ class SumUp(BasePaymentProvider):
         checkout_id = payment.info_data.get("sumup_checkout_id")
         if checkout_id:
             try:
-                sumup_client.cancel_checkout(
-                    checkout_id, self.settings.get("access_token")
-                )
+                access_token = self.settings.get("access_token")
+                client = SumUpClient(access_token)
+                client.cancel_checkout(checkout_id)
             except Exception as err:
-                logger.warn(f"Error while canceling SumUp checkout: {err}")
-                pass  # Ignore errors, this hasn't any impact on us
+                logger.warning(f"Error while canceling SumUp checkout: {err}")
         super().cancel_payment(payment)
 
     def payment_refund_supported(self, payment: OrderPayment):
@@ -345,11 +338,12 @@ class SumUp(BasePaymentProvider):
             )
             raise PaymentException(_("Error while refunding SumUp transaction"))
         try:
-            sumup_client.refund_transaction(
+            access_token = self.settings.get("access_token")
+            merchant_code = self.settings.get("merchant_code")
+            client = SumUpClient(access_token, merchant_code=merchant_code)
+            client.refund_transaction(
                 transaction_id=transaction["id"],
-                merchant_code=self.settings.get("merchant_code"),
                 amount=float(refund.amount),
-                access_token=self.settings.get("access_token"),
             )
             refund.done()
         except Exception as err:
@@ -358,7 +352,6 @@ class SumUp(BasePaymentProvider):
             refund.save(update_fields=["state"])
             raise PaymentException(_("Error while refunding SumUp transaction"))
 
-        # Synchronize the transaction to get the refund status
         self._try_synchronize_transaction(payment, transaction["id"])
 
     def render_invoice_text(self, order: Order, payment: OrderPayment):
@@ -385,9 +378,7 @@ class SumUp(BasePaymentProvider):
 
     @staticmethod
     def _render_transaction_control(transaction: dict, receipt_url: str | None = None):
-        payment_info = {
-            "receipt_url": receipt_url,
-        }
+        payment_info = {"receipt_url": receipt_url}
         card = transaction.get("card")
         if card:
             payment_info["payment_type"] = card.get(
@@ -406,21 +397,18 @@ class SumUp(BasePaymentProvider):
         transaction = payment.info_data.get("sumup_transaction")
         if not transaction:
             return ""
-
         return self._render_transaction_control(transaction)
 
     def payment_control_render(self, order: Order, payment: OrderPayment):
         transaction = payment.info_data.get("sumup_transaction")
         if not transaction:
             return ""
-
         return self._render_transaction_control(
             transaction, self._build_receipt_url(transaction)
         )
 
     def refund_control_render(self, request: HttpRequest, refund: OrderRefund):
         if refund.amount != refund.payment.amount:
-            # we are not able to match partial refunds which result potentially in multiple refunds
             return ""
         transaction = refund.payment.info_data.get("sumup_transaction")
         if not transaction:
@@ -435,7 +423,6 @@ class SumUp(BasePaymentProvider):
         )
         if not refund_event_id:
             return ""
-
         return self._render_transaction_control(
             transaction, self._build_receipt_url(transaction, event_id=refund_event_id)
         )
@@ -461,12 +448,6 @@ class SumUp(BasePaymentProvider):
         return url
 
     def _synchronize_payment_status(self, payment: OrderPayment, force: bool = False):
-        """
-        Synchronizes the payment status with the SumUp Checkout.
-        :param force: True if the payment status should be synchronized even if it is already confirmed and the transactions was synchronized
-        :param payment: The OrderPayment object to synchronize
-        :return: True if a SumUp checkout exists which hasn't failed, False if no checkout exists or the checkout has failed
-        """
         checkout_id = payment.info_data.get("sumup_checkout_id")
         if not checkout_id:
             return False
@@ -476,18 +457,26 @@ class SumUp(BasePaymentProvider):
                 and payment.info_data.get("sumup_transaction") is not None
             ):
                 return True
+
+        access_token = self.settings.get("access_token")
+        client = SumUpClient(access_token)
+
         try:
-            checkout = sumup_client.get_checkout(
-                checkout_id, self.settings.get("access_token")
-            )
+            checkout = client.get_checkout(checkout_id)
         except Exception as err:
-            logger.exception(f"Error while synchronizing SumUp checkout: {err}")
+            logger.exception(
+                "Error while synchronizing SumUp checkout",
+                extra={
+                    "checkout_id": checkout_id,
+                    "order_code": payment.order.code,
+                },
+            )
             raise PaymentException(_("Error while synchronizing SumUp checkout"))
+
         if checkout["status"] == "PAID":
             if not payment.state == OrderPayment.PAYMENT_STATE_CONFIRMED:
                 payment.confirm()
 
-            # Every try of processing the payment results in a transaction, we only care about the successful one
             transaction_id = next(
                 (
                     transaction.get("id")
@@ -498,31 +487,52 @@ class SumUp(BasePaymentProvider):
             )
             if transaction_id is not None:
                 self._try_synchronize_transaction(payment, transaction_id)
+                log_payment_confirmation(
+                    logger,
+                    payment.order.code,
+                    payment.pk,
+                    transaction_id,
+                )
             return True
+
         elif checkout["status"] == "PENDING":
             if not payment.state == OrderPayment.PAYMENT_STATE_PENDING:
                 payment.state = OrderPayment.PAYMENT_STATE_PENDING
                 payment.save(update_fields=["state"])
             return True
+
         elif checkout["status"] == "FAILED":
             if not payment.state == OrderPayment.PAYMENT_STATE_FAILED:
                 payment.fail()
             return False
 
     def _try_synchronize_transaction(self, payment: OrderPayment, transaction_id: str):
+        access_token = self.settings.get("access_token")
+        merchant_code = self.settings.get("merchant_code")
+        client = SumUpClient(access_token, merchant_code=merchant_code)
+
         try:
-            transaction = sumup_client.get_transaction(
-                transaction_id=transaction_id,
-                merchant_code=self.settings.get("merchant_code"),
-                access_token=self.settings.get("access_token"),
-            )
-            # split into multiple line is required to invoke the setter of info_data
+            transaction = client.get_transaction(transaction_id)
             info_data = payment.info_data
             info_data["sumup_transaction"] = transaction
             payment.info_data = info_data
             payment.save()
+            logger.info(
+                "Transaction data synchronized",
+                extra={
+                    "transaction_id": transaction_id,
+                    "order_code": payment.order.code,
+                },
+            )
         except Exception as err:
-            logger.warn(f"Error while synchronizing SumUp transaction: {err}")
+            logger.warning(
+                "Error while synchronizing SumUp transaction",
+                extra={
+                    "transaction_id": transaction_id,
+                    "order_code": payment.order.code,
+                    "error": str(err),
+                },
+            )
 
     @staticmethod
     def _get_sumup_locale(request):

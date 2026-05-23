@@ -3,7 +3,7 @@ name = "pretix-sumup-payment"
 dynamic = ["version"]
 description = "Enables credit card payments via SumUp"
 readme = "README.rst"
-license = {text = "Apache"}
+license = {text = "AGPL-3.0-or-later"}
 keywords = ["pretix"]
 authors = [
     {name = "Christoph Walcher", email = "chris@wiomoc.de"},
@@ -11,8 +11,10 @@ authors = [
 maintainers = [
     {name = "Christoph Walcher", email = "chris@wiomoc.de"},
 ]
+requires-python = ">=3.9"
 
 dependencies = [
+    "requests>=2.25.0",
 ]
 
 [project.entry-points."pretix.plugin"]

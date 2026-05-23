@@ -1,114 +1,84 @@
-Pretix SumUp Payment
-====================
+Pretix SumUp Payment Plugin
+============================
 
-.. image:: /images/SumUp_Pretix_plugin_header.png
-   :align: center
+Accept credit card payments via SumUp.
 
+Features
+--------
 
-This is a plugin for `Pretix`_.
+- Credit card payments via SumUp's card widget
+- Alternative Payment Methods (Apple Pay, Google Pay, iDEAL, etc.)
+- Inline payment form (no redirect)
+- Automatic payment status synchronization via webhooks
+- Payment reconciliation tools
+- Admin diagnostics UI for webhooks
+- Structured logging for operational visibility
 
-Enables credit card payments, Apple Pay, Google Pay, and alternative payment methods via SumUp.
+Setup
+-----
 
-SumUp Payment Provider Setup Guide
-----------------------------------
+1. Install the plugin::
 
-Overview
-^^^^^^^^
-This guide walks through setting up and configuring the SumUp payment provider for your Pretix installation. The SumUp payment provider allows you to accept credit card payments and various alternative payment methods.
+    pip install pretix-sumup-payment
 
-Prerequisites
-^^^^^^^^^^^^^
-* A SumUp merchant account  
-* API keys from the SumUp developer portal  
-* Pretix installation
+2. Enable the plugin in Pretix admin ("Settings" → "Plugins").
 
-Configuration Options
-^^^^^^^^^^^^^^^^^^^^^
+3. Configure the payment provider under your event's settings
+   ("Settings" → "Payment" → "SumUp").
 
-Basic Setup
-"""""""""""
-1. **API Key**: Required authorization token that allows Pretix to call SumUp on your behalf.
+4. Enter your SumUp API Key (sup_sk_...).
 
-   * Obtain it from: `SumUp API Keys <https://developer.sumup.com/api-keys>`_
-   * Format must begin with ``sup_sk_``
-   * Paste it into the ``API Key`` field under the plugin's settings.
+5. The merchant code and name will be auto-filled from the API.
 
-2. **Merchant Code & Merchant Name**: Automatically filled in when a valid API key is provided after saving.
+6. Optionally enable Alternative Payment Methods and/or Google Pay.
 
-Alternative Payment Methods
-"""""""""""""""""""""""""""
-1. **Enable Alternative Payment Methods** under the plugin's settings: Allows customers to pay using:
+7. Configure your SumUp webhook to point at::
 
-   * Apple Pay
-   * Google Pay
-   * iDEAL
-   * Other methods depending on your `SumUp account's country <https://developer.sumup.com/online-payments/apm/introduction#supported-alternative-payment-methods>`_
+    https://your-domain.com/pretix/<org>/<event>/sumup/checkout_event/<payment_id>/
 
-2. **Apple Pay Setup**:
+   The webhook URL is unique per event and payment. Configure it in your
+   SumUp developer dashboard under Webhooks.
 
-   * Download the Domain verification file from `SumUp Wallets Settings <https://developer.sumup.com/settings/wallets/apple-pay?tab=web>`_ and open it with a text editor
-   * Copy and paste the whole file as text to the ``ApplePay MerchantID Domain Association`` field under Pretix's ``Global settings`` (``yourdomain/control/global/settings/`` - only accessible as an Admin user via ``Admin mode``)
-   * Verify your domain by pasting it to `SumUp Wallets Settings`_ and clicking ``Check domain`` (like ``example.com`` or ``world.example.com``)
-   * You're done! Apple Pay should show as an option from now on for every new checkout, when visited by an supported device like an iPhone!
+For more detailed setup instructions, see:
+- Architecture: `docs/ARCHITECTURE.md`
+- Troubleshooting: `docs/TROUBLESHOOTING.md`
+- Development: `README.dev.md`
 
-3. **Google Pay Setup**:
+Google Pay Setup
+----------------
 
-   * For the Google Pay checkout you'll need to register a Google Pay business account and validate your domain with Google by sending screenshots of your checkout to verify that it satisfies Google's guidelines. Additionally, you'll need to contact SumUp's Integration Team to activate Google Pay on your merchant account.
-   * First, register a Google Pay business account `here <https://pay.google.com/business/console/>`_
-   * Fill out your information under the ``Business profile`` tab and get it approved by Google
-   * ``Enable Google Pay`` under the plugin's settings and fill in your Google ``Merchant ID`` (you can find it next to your business name on the Google Pay console)
-   * Under the ``Google Pay API`` tab fill in your domain (like ``example.com`` or ``world.example.com``) and choose ``Gateway`` as ``Integration type``
-   * Take screenshots of your **own** Pretix store (see the examples under `images </images/>`_) and submit them to Google. For the ``Payment method screen`` and ``GooglePay API Payment Screen`` add ``#sumup-widget:google-pay-demo-mode`` to your URL to generate a test Google Pay button. (e.g.: ``yourdomain.net/yourorganizer/yourevent/order/GDBBK/9ddqfjdkaujvhus45q/#sumup-widget:google-pay-demo-mode``)
-   * Wait until Google Approves your implementation (usually within 48h)
-   * Contact SumUp's Integration Team to activate Google Pay on your merchant account via the `contact form <https://developer.sumup.com/contact>`_.  
-     You'll need to provide them with your SumUp Merchant Code, SumUp Merchant Email, and a URL to a test ticket shop in order to check if your store complies with their policies.
-   * You're done! Google Pay should show as an option from now on for every new checkout!
+1. Register at https://pay.google.com/business/console/
+2. Get your Google Merchant ID
+3. Enable Google Pay in the plugin settings
+4. Contact SumUp to activate Google Pay on your account
 
+See the plugin settings help text for detailed step-by-step instructions.
 
-4. **Other Alternative Payment Methods**
+Development
+-----------
 
-   * After enabling ``Alternative Payment Methods`` under the plugin's settings they should show up as an option depending on your `SumUp account's country`_
+For local development with Docker:
 
+.. code-block:: bash
 
-Development setup
------------------
+    git clone https://github.com/wiomoc/pretix-sumup-payment.git
+    cd pretix-sumup-payment
+    docker compose build
+    docker compose up -d
+    docker compose exec pretix python -m pretix migrate
+    docker compose exec pretix python -m pretix createsuperuser
 
-1. Make sure that you have a working `Pretix development setup`_.
+See `README.dev.md` for detailed development instructions.
 
-2. Clone this repository.
+Running tests:
 
-3. Activate the virtual environment you use for Pretix development.
+.. code-block:: bash
 
-4. Execute ``python setup.py develop`` within this directory to register this application with Pretix's plugin registry.
-
-5. Execute ``make`` within this directory to compile translations.
-
-6. Restart your local Pretix server. You can now use the plugin from this repository for your events by enabling it in the 'plugins' tab in the settings.
-
-This plugin has CI set up to enforce a few code style rules. To check locally, you need these packages installed::
-
-    pip install flake8 isort black
-
-To check your plugin for rule violations, run::
-
-    black --check .
-    isort -c .
-    flake8 .
-
-You can auto-fix some of these issues by running::
-
-    isort .
-    black .
-
-To automatically check for these issues before you commit, you can run ``.install-hooks``.
+    pip install -e .
+    pip install pytest pytest-django
+    py.test tests
 
 License
 -------
 
-
-Copyright 2025 Christoph Walcher & Botond Moksony
-
-Released under the terms of the Apache License 2.0
-
-.. _Pretix: https://github.com/Pretix/Pretix  
-.. _Pretix development setup: https://docs.Pretix.eu/en/latest/development/setup.html
+Apache 2.0
