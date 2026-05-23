@@ -155,8 +155,12 @@ class SumUp(BasePaymentProvider):
         cleaned_data = super().settings_form_clean(cleaned_data)
         errors = {}
 
-        access_token = cleaned_data.get("payment_sumup_access_token")
-        if access_token is not None and access_token != SECRET_REDACTED:
+        raw_access_token = cleaned_data.get("payment_sumup_access_token")
+        access_token = raw_access_token
+        if access_token == SECRET_REDACTED:
+            access_token = self.settings.get("access_token")
+
+        if access_token:
             try:
                 (
                     merchant_name,
@@ -167,9 +171,10 @@ class SumUp(BasePaymentProvider):
                 cleaned_data["payment_sumup_merchant_code"] = merchant_code
                 cleaned_data["payment_sumup_merchant_name"] = merchant_name
             except Exception as e:
-                errors["payment_sumup_access_token"] = _("Invalid API key: {}").format(
-                    str(e)
-                )
+                if raw_access_token != SECRET_REDACTED:
+                    errors["payment_sumup_access_token"] = _(
+                        "Invalid API key: {}"
+                    ).format(str(e))
 
         # Validate Google Pay settings
         apms_enabled = cleaned_data.get("payment_sumup_enable_apms", False)
@@ -342,6 +347,7 @@ class SumUp(BasePaymentProvider):
         try:
             sumup_client.refund_transaction(
                 transaction_id=transaction["id"],
+                merchant_code=self.settings.get("merchant_code"),
                 amount=float(refund.amount),
                 access_token=self.settings.get("access_token"),
             )

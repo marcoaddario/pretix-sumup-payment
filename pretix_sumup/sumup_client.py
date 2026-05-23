@@ -126,9 +126,9 @@ def get_transaction(transaction_id, merchant_code, access_token):
     return response_body
 
 
-def refund_transaction(transaction_id, access_token, amount=None):
+def refund_transaction(transaction_id, merchant_code, access_token, amount=None):
     response = requests.post(
-        f"{SUMUP_BASE_URL}/v0.1/me/refund/{transaction_id}",
+        f"{SUMUP_BASE_URL}/v1.0/merchants/{merchant_code}/payments/{transaction_id}/refunds",
         json={"amount": float(amount)} if amount else None,
         headers=_auth_header(access_token),
     )
