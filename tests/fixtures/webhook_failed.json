@@ -1,0 +1,11 @@
+{
+  "event_id": "test_event_failed_001",
+  "event_type": "checkout.failed",
+  "checkout_id": "test_checkout_failed_001",
+  "transaction_id": "",
+  "payload": {
+    "checkout_id": "test_checkout_failed_001",
+    "status": "FAILED",
+    "error": "Card declined"
+  }
+}

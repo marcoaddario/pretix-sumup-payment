@@ -1,0 +1,13 @@
+{
+  "event_id": "test_event_paid_001",
+  "event_type": "checkout.paid",
+  "checkout_id": "test_checkout_paid_001",
+  "transaction_id": "test_transaction_paid_001",
+  "payload": {
+    "checkout_id": "test_checkout_paid_001",
+    "transaction_id": "test_transaction_paid_001",
+    "status": "PAID",
+    "amount": 10.00,
+    "currency": "GBP"
+  }
+}

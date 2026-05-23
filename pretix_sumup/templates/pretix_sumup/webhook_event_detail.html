@@ -1,0 +1,63 @@
+{% extends "pretixcontrol/event/settings_base.html" %}
+{% load i18n %}
+{% block title %}{% trans "Webhook event" %} #{{ event.pk }}{% endblock %}
+{% block content %}
+    <h1>{% trans "Webhook event" %} #{{ event.pk }}</h1>
+    <dl class="dl-horizontal">
+        <dt>{% trans "Created" %}</dt>
+        <dd>{{ event.created_at|date:"Y-m-d H:i:s" }}</dd>
+        <dt>{% trans "Processed at" %}</dt>
+        <dd>{{ event.processed_at|date:"Y-m-d H:i:s"|default:"-" }}</dd>
+        <dt>{% trans "Event type" %}</dt>
+        <dd>{{ event.event_type|default:"-" }}</dd>
+        <dt>{% trans "Event ID" %}</dt>
+        <dd><code>{{ event.event_id|default:"-" }}</code></dd>
+        <dt>{% trans "Checkout ID" %}</dt>
+        <dd><code>{{ event.sumup_checkout_id|default:"-" }}</code></dd>
+        <dt>{% trans "Transaction ID" %}</dt>
+        <dd><code>{{ event.sumup_transaction_id|default:"-" }}</code></dd>
+        <dt>{% trans "Order" %}</dt>
+        <dd>
+            {% if event.pretix_order_code %}
+                <a href="{% url "control:event.order" organizer=request.event.organizer.slug event=request.event.slug code=event.pretix_order_code %}">
+                    {{ event.pretix_order_code }}
+                </a>
+            {% else %}
+                -
+            {% endif %}
+        </dd>
+        <dt>{% trans "Status" %}</dt>
+        <dd>
+            {% if event.processing_status == "processed" %}
+                <span class="label label-success">{% trans "Processed" %}</span>
+            {% elif event.processing_status == "failed" %}
+                <span class="label label-danger">{% trans "Failed" %}</span>
+            {% elif event.processing_status == "ignored" %}
+                <span class="label label-warning">{% trans "Ignored" %}</span>
+            {% else %}
+                <span class="label label-info">{% trans "Pending" %}</span>
+            {% endif %}
+        </dd>
+        {% if event.error_message %}
+            <dt>{% trans "Error" %}</dt>
+            <dd><pre>{{ event.error_message }}</pre></dd>
+        {% endif %}
+    </dl>
+    {% if event.processing_status == "failed" %}
+        <form method="post" action="{% url "plugins:pretix_sumup:retry_webhook" organizer=request.event.organizer.slug event=request.event.slug event_id=event.pk %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-primary">
+                {% trans "Retry processing" %}
+            </button>
+        </form>
+    {% endif %}
+    <h3>{% trans "Payload" %}</h3>
+    <pre>{{ payload|pprint }}</pre>
+    <h3>{% trans "Headers" %}</h3>
+    <pre>{{ headers|pprint }}</pre>
+    <p>
+        <a href="{% url "plugins:pretix_sumup:webhook_event_list" organizer=request.event.organizer.slug event=request.event.slug %}" class="btn btn-default">
+            {% trans "Back to list" %}
+        </a>
+    </p>
+{% endblock %}

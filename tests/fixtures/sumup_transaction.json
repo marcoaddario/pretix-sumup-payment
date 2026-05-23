@@ -1,0 +1,18 @@
+{
+  "id": "test_transaction_paid_001",
+  "transaction_code": "TXN-TEST-001",
+  "amount": 10.00,
+  "currency": "GBP",
+  "status": "SUCCESSFUL",
+  "merchant_code": "TESTMC001",
+  "checkout_ref": "test-event/TEST001/1",
+  "simple_payment_type": "CARD",
+  "card": {
+    "type": "VISA",
+    "last_4_digits": "1234",
+    "installments": 1
+  },
+  "auth_code": "AUTH123",
+  "entry_mode": "customer entry",
+  "events": []
+}

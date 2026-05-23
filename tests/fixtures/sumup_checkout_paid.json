@@ -1,0 +1,15 @@
+{
+  "id": "test_checkout_paid_001",
+  "status": "PAID",
+  "amount": 10.00,
+  "currency": "GBP",
+  "checkout_reference": "test-event/TEST001/1",
+  "transactions": [
+    {
+      "id": "test_transaction_paid_001",
+      "status": "SUCCESSFUL",
+      "amount": 10.00,
+      "currency": "GBP"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+services:
+  redis:
+    image: redis:7
+
+  pretix:
+    build: .
+    ports:
+      - "8345:80"
+    depends_on:
+      - redis
+    environment:
+      PRETIX_REDIS_LOCATION: redis://redis:6379/0
+
+      PRETIX_DEBUG: "1"
+    volumes:
+      - ./data:/data
+      - ./config/pretix.cfg:/etc/pretix/pretix.cfg
+      - .:/pretix/plugins/pretix-sumup-payment

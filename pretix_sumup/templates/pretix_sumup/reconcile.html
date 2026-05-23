@@ -1,0 +1,69 @@
+{% extends "pretixcontrol/event/settings_base.html" %}
+{% load i18n %}
+{% block title %}{% trans "Reconcile SumUp payments" %}{% endblock %}
+{% block content %}
+    <h1>{% trans "Reconcile SumUp payments" %}</h1>
+    {% if result.error %}
+        <div class="alert alert-danger">{{ result.error }}</div>
+    {% else %}
+        <p>{% trans "Checked" %}: {{ result.checked }} {% trans "transactions" %}</p>
+        {% if result.mismatches %}
+            <div class="alert alert-warning">
+                {% blocktrans count count=result.mismatches|length %}
+                    {{ count }} mismatch found.
+                {% plural %}
+                    {{ count }} mismatches found.
+                {% endblocktrans %}
+            </div>
+            <table class="table table-condensed table-hover">
+                <thead>
+                    <tr>
+                        <th>{% trans "Type" %}</th>
+                        <th>{% trans "Transaction ID" %}</th>
+                        <th>{% trans "Status" %}</th>
+                        <th>{% trans "Order" %}</th>
+                        <th>{% trans "Detail" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for m in result.mismatches %}
+                        <tr>
+                            <td><code>{{ m.type }}</code></td>
+                            <td><code>{{ m.transaction_id|truncatechars:20 }}</code></td>
+                            <td>{{ m.status }}</td>
+                            <td>
+                                {% if m.order_code %}
+                                    <a href="{% url "control:event.order" organizer=request.event.organizer.slug event=request.event.slug code=m.order_code %}">
+                                        {{ m.order_code }}
+                                    </a>
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>{{ m.detail }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="repair">
+                <button type="submit" class="btn btn-warning">
+                    {% trans "Attempt repair" %}
+                </button>
+            </form>
+        {% else %}
+            <div class="alert alert-success">{% trans "No mismatches found." %}</div>
+        {% endif %}
+        <form method="get">
+            <button type="submit" class="btn btn-primary">
+                {% trans "Refresh" %}
+            </button>
+        </form>
+    {% endif %}
+    <p>
+        <a href="{% url "plugins:pretix_sumup:webhook_event_list" organizer=request.event.organizer.slug event=request.event.slug %}" class="btn btn-default">
+            {% trans "Back" %}
+        </a>
+    </p>
+{% endblock %}

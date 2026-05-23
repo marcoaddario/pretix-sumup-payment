@@ -1,0 +1,65 @@
+{% extends "pretixcontrol/event/settings_base.html" %}
+{% load i18n %}
+{% block title %}{% trans "SumUp webhook events" %}{% endblock %}
+{% block content %}
+    <h1>{% trans "SumUp webhook events" %}</h1>
+    <form method="get" class="form-inline">
+        <div class="form-group">
+            <select name="status" class="form-control">
+                <option value="">{% trans "All statuses" %}</option>
+                <option value="pending" {% if status_filter == "pending" %}selected{% endif %}>{% trans "Pending" %}</option>
+                <option value="processed" {% if status_filter == "processed" %}selected{% endif %}>{% trans "Processed" %}</option>
+                <option value="failed" {% if status_filter == "failed" %}selected{% endif %}>{% trans "Failed" %}</option>
+                <option value="ignored" {% if status_filter == "ignored" %}selected{% endif %}>{% trans "Ignored" %}</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <input type="text" name="search" class="form-control" placeholder="{% trans "Search order, checkout or event ID" %}" value="{{ search }}">
+        </div>
+        <button type="submit" class="btn btn-primary">{% trans "Filter" %}</button>
+    </form>
+    <table class="table table-condensed table-hover">
+        <thead>
+            <tr>
+                <th>{% trans "ID" %}</th>
+                <th>{% trans "Created" %}</th>
+                <th>{% trans "Event type" %}</th>
+                <th>{% trans "Checkout ID" %}</th>
+                <th>{% trans "Order" %}</th>
+                <th>{% trans "Status" %}</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for e in events %}
+                <tr>
+                    <td>{{ e.pk }}</td>
+                    <td>{{ e.created_at|date:"Y-m-d H:i:s" }}</td>
+                    <td>{{ e.event_type }}</td>
+                    <td><code>{{ e.sumup_checkout_id|truncatechars:30 }}</code></td>
+                    <td>{{ e.pretix_order_code|default:"-" }}</td>
+                    <td>
+                        {% if e.processing_status == "processed" %}
+                            <span class="label label-success">{% trans "Processed" %}</span>
+                        {% elif e.processing_status == "failed" %}
+                            <span class="label label-danger">{% trans "Failed" %}</span>
+                        {% elif e.processing_status == "ignored" %}
+                            <span class="label label-warning">{% trans "Ignored" %}</span>
+                        {% else %}
+                            <span class="label label-info">{% trans "Pending" %}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{% url "plugins:pretix_sumup:webhook_event_detail" organizer=request.event.organizer.slug event=request.event.slug event_id=e.pk %}" class="btn btn-default btn-sm">
+                            {% trans "Details" %}
+                        </a>
+                    </td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="7" class="text-muted">{% trans "No webhook events found." %}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% endblock %}
